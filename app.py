@@ -63,8 +63,8 @@ user engagement, and predictions on group activity trends.
 # Functions for chat processing
 def parse_chat(text_data):
     """Extract messages, timestamps, and users from WhatsApp chat text."""
-    # Pattern for messages with date, time, user, and content
-    pattern = r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?\s(?:AM|PM)?) - (.*?): (.*?)(?=\n\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?\s(?:AM|PM)? - |$)'
+    # Add a new pattern specifically for the format: 13/10/2024, 21:57 - Yuvaan Sir: <Media omitted>
+    pattern = r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?) - (.*?): (.*?)(?=\n\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})? - |$)'
     
     # Extract matches
     matches = re.findall(pattern, text_data, re.DOTALL)
@@ -73,13 +73,30 @@ def parse_chat(text_data):
     df = pd.DataFrame(matches, columns=['timestamp', 'user', 'message'])
     
     if len(df) == 0:
-        # Alternative pattern for different WhatsApp export formats
+        # Try alternative pattern for different timestamp format
         pattern = r'\[(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?)\]\s(.*?):\s(.*?)(?=\n\[\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?\]\s|$)'
         matches = re.findall(pattern, text_data, re.DOTALL)
         df = pd.DataFrame(matches, columns=['timestamp', 'user', 'message'])
     
     if len(df) == 0:
+        # Another alternative format (no seconds in timestamp)
+        pattern = r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}) - (.*?): (.*?)(?=\n\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2} - |$)'
+        matches = re.findall(pattern, text_data, re.DOTALL)
+        df = pd.DataFrame(matches, columns=['timestamp', 'user', 'message'])
+    
+    if len(df) == 0:
         st.error("Could not parse the chat file. Please check the format and try again.")
+        
+        # Print sample of the file to help with debugging
+        st.code(text_data[:1000], language="text")
+        
+        # Let's try a more lenient pattern and show what it finds
+        simple_pattern = r'(\d{1,2}/\d{1,2}/\d{4}.*?) - (.*?): (.*?)(?=\n\d{1,2}/\d{1,2}/\d{4}|$)'
+        sample_matches = re.findall(simple_pattern, text_data[:5000], re.DOTALL)
+        if sample_matches:
+            st.info(f"Found {len(sample_matches)} messages with a simpler pattern. Here's an example of what was matched:")
+            st.write(sample_matches[0])
+        
         return None
     
     return df
@@ -91,20 +108,23 @@ def process_dataframe(df):
     
     # Try different timestamp formats
     try:
-        df['datetime'] = pd.to_datetime(df['timestamp'], format='%m/%d/%y, %I:%M:%S %p')
+        df['datetime'] = pd.to_datetime(df['timestamp'], format='%d/%m/%Y, %H:%M')
     except:
         try:
-            df['datetime'] = pd.to_datetime(df['timestamp'], format='%d/%m/%Y, %H:%M:%S')
+            df['datetime'] = pd.to_datetime(df['timestamp'], format='%d/%m/%y, %H:%M')
         except:
             try:
-                df['datetime'] = pd.to_datetime(df['timestamp'], format='%d/%m/%Y, %H:%M')
+                df['datetime'] = pd.to_datetime(df['timestamp'], format='%m/%d/%Y, %I:%M %p')
             except:
                 try:
-                    df['datetime'] = pd.to_datetime(df['timestamp'], format='%m/%d/%Y, %I:%M %p')
+                    df['datetime'] = pd.to_datetime(df['timestamp'], format='%d/%m/%Y, %H:%M:%S')
                 except:
-                    st.warning("Could not parse datetime format. Using a generic approach.")
-                    # Generic approach - this might not be accurate
-                    df['datetime'] = pd.to_datetime(df['timestamp'], errors='coerce')
+                    try:
+                        df['datetime'] = pd.to_datetime(df['timestamp'], format='%m/%d/%y, %I:%M:%S %p')
+                    except:
+                        st.warning("Could not parse datetime format. Using a generic approach.")
+                        # Generic approach - this might not be accurate
+                        df['datetime'] = pd.to_datetime(df['timestamp'], errors='coerce')
     
     # Filter out rows with NaT datetime
     df = df.dropna(subset=['datetime'])
@@ -139,6 +159,84 @@ def process_dataframe(df):
                                          if not pd.isna(x) else 0)
     
     return df
+# def parse_chat(text_data):
+#     """Extract messages, timestamps, and users from WhatsApp chat text."""
+#     # Pattern for messages with date, time, user, and content
+#     pattern = r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?\s(?:AM|PM)?) - (.*?): (.*?)(?=\n\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?\s(?:AM|PM)? - |$)'
+    
+#     # Extract matches
+#     matches = re.findall(pattern, text_data, re.DOTALL)
+    
+#     # Convert to DataFrame
+#     df = pd.DataFrame(matches, columns=['timestamp', 'user', 'message'])
+    
+#     if len(df) == 0:
+#         # Alternative pattern for different WhatsApp export formats
+#         pattern = r'\[(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?)\]\s(.*?):\s(.*?)(?=\n\[\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?\]\s|$)'
+#         matches = re.findall(pattern, text_data, re.DOTALL)
+#         df = pd.DataFrame(matches, columns=['timestamp', 'user', 'message'])
+    
+#     if len(df) == 0:
+#         st.error("Could not parse the chat file. Please check the format and try again.")
+#         return None
+    
+#     return df
+
+# def process_dataframe(df):
+#     """Process the dataframe to extract useful features for analysis."""
+#     if df is None or len(df) == 0:
+#         return None
+    
+#     # Try different timestamp formats
+#     try:
+#         df['datetime'] = pd.to_datetime(df['timestamp'], format='%m/%d/%y, %I:%M:%S %p')
+#     except:
+#         try:
+#             df['datetime'] = pd.to_datetime(df['timestamp'], format='%d/%m/%Y, %H:%M:%S')
+#         except:
+#             try:
+#                 df['datetime'] = pd.to_datetime(df['timestamp'], format='%d/%m/%Y, %H:%M')
+#             except:
+#                 try:
+#                     df['datetime'] = pd.to_datetime(df['timestamp'], format='%m/%d/%Y, %I:%M %p')
+#                 except:
+#                     st.warning("Could not parse datetime format. Using a generic approach.")
+#                     # Generic approach - this might not be accurate
+#                     df['datetime'] = pd.to_datetime(df['timestamp'], errors='coerce')
+    
+#     # Filter out rows with NaT datetime
+#     df = df.dropna(subset=['datetime'])
+    
+#     # Extract date components
+#     df['date'] = df['datetime'].dt.date
+#     df['time'] = df['datetime'].dt.time
+#     df['hour'] = df['datetime'].dt.hour
+#     df['day'] = df['datetime'].dt.day
+#     df['month'] = df['datetime'].dt.month
+#     df['year'] = df['datetime'].dt.year
+#     df['day_of_week'] = df['datetime'].dt.day_name()
+    
+#     # Message features
+#     df['message_length'] = df['message'].apply(len)
+#     df['word_count'] = df['message'].apply(lambda x: len(str(x).split()))
+    
+#     # Identify media messages
+#     df['is_media'] = df['message'].str.contains('<Media omitted>|image omitted|video omitted|audio omitted|document omitted', case=False)
+    
+#     # Identify reactions (thumbs up, heart, etc.) - common WhatsApp reaction patterns
+#     df['is_reaction'] = df['message'].str.match(r'^(👍|❤️|😂|😮|😢|🙏|👌|👏|🔥|❤|♥️|🤣|😁|👆|👇|👉|👈|🤞|✌️|🤦‍♀️|🤦‍♂️|👨‍💻|👩‍💻|👍🏻|👍🏼|👍🏽|👍🏾|👍🏿)$')
+    
+#     # Identify URL sharing
+#     url_pattern = r'https?://\S+|www\.\S+'
+#     df['contains_url'] = df['message'].str.contains(url_pattern, case=False)
+    
+#     # Get sentiment scores
+#     sid = SentimentIntensityAnalyzer()
+#     df['sentiment'] = df['message'].apply(lambda x: 
+#                                          sid.polarity_scores(str(x))['compound'] 
+#                                          if not pd.isna(x) else 0)
+    
+#     return df
 
 def get_user_stats(df):
     """Get per-user statistics."""
@@ -202,6 +300,13 @@ def calculate_engagement_metrics(df, time_stats):
     if df is None or len(df) == 0 or time_stats is None:
         return None
     
+ 
+    # Sort the DataFrame in place
+    df.sort_values('datetime', inplace=True)
+    
+    # Calculate response times
+    df['next_message_time'] = df['datetime'].shift(-1)
+    df['response_time_seconds'] = (df['next_message_time'] - df['datetime']).dt.total_seconds()
     # Number of active days
     active_days = len(time_stats['daily'])
     
