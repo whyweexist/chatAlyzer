@@ -934,7 +934,7 @@ if uploaded_file is not None:
                 
                 # Overall engagement conclusion
                 st.subheader("Engagement Summary")
-                
+                user_stats_sorted = user_stats.sort_values('message_percentage', ascending=False)
                 # Create engagement metrics summary
                 engagement_summary = f"""
                 - **Overall Trend**: {trend} ({change_pct:.1f}% change in last 14 days)
@@ -966,7 +966,7 @@ if uploaded_file is not None:
                 **Key Insights**:
                 - Most active time: {most_active_hour}:00 hours
                 - Most active day: {most_active_day}
-                - Top contributor: {user_stats.iloc[len(user_stats) - 1]['user']} ({user_stats.iloc[len(user_stats) - 1]['message_percentage']}% of messages)
+                - Top contributor: {user_stats_sorted.iloc[0]['user']} ({user_stats_sorted.iloc[0]['message_percentage']}% of messages)
                 """)
                 
                 # Export options
