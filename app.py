@@ -966,7 +966,7 @@ if uploaded_file is not None:
                 **Key Insights**:
                 - Most active time: {most_active_hour}:00 hours
                 - Most active day: {most_active_day}
-                - Top contributor: {user_stats.iloc[0]['user']} ({user_stats.iloc[0]['message_percentage']}% of messages)
+                - Top contributor: {user_stats.iloc[len(user_stats) - 1]['user']} ({user_stats.iloc[len(user_stats) - 1]['message_percentage']}% of messages)
                 """)
                 
                 # Export options
