@@ -64,10 +64,44 @@ user engagement, and predictions on group activity trends.
 def parse_chat(text_data):
     """Extract messages, timestamps, and users from WhatsApp chat text."""
     # Add a new pattern specifically for the format: 13/10/2024, 21:57 - Yuvaan Sir: <Media omitted>
-    pattern = r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?) - (.*?): (.*?)(?=\n\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})? - |$)'
+    # pattern = r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?) - (.*?): (.*?)(?=\n\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})? - |$)'
+    pattern = r'''
+    (                               # Start of timestamp
+        (?:                         # Date variations:
+            \d{1,2}[\/\-\.]         # Day/month separator (1-2 digits)
+            (?:\d{1,2}|[A-Za-z]{3}) # Month: 1-2 digits or abbreviated text (handles typos like "D")
+            [\/\-\.]                # Year separator
+            \d{2,4}                 # Year (2-4 digits)
+        )
+        ,?\s+                       # Comma and whitespace
+        (?:                         # Time variations:
+            \d{1,2}:\d{2}(?::\d{2})?      # 24h format (with optional seconds)
+            |                               # OR
+            \d{1,2}:\d{2}\s*[apAP][mM]     # 12h format with AM/PM
+        )
+    )                               # End of timestamp
+    \s*[-–—]\s*                     # Flexible separator (hyphen, en-dash, em-dash)
+    (.*?)                           # User
+    :\s                             # Message separator
+    (.*?)                           # Message content
+    (?=\n\s*\d|$)                   # Lookahead for next message
+    '''
+    
+    matches = re.findall(pattern, text_data, re.VERBOSE | re.DOTALL)
+    if not matches:
+        # Alternative pattern for bracketed timestamps [1/19/88, 21:59]
+        alt_pattern = r'\[({0})\]'.format(
+            r'(?:\d{1,2}[\/\-\.](?:\d{1,2}|[A-Za-z]+)[\/\-\.]\d{2,4},\s*(?:\d{1,2}:\d{2}(?::\d{2})?|\d{1,2}:\d{2}\s*[apAP][mM])'
+        )
+        matches = re.findall(alt_pattern + r'\s(.*?):\s(.*?)(?=\n\[|$)', text_data, re.DOTALL)
+    
+    if not matches:
+        st.error("Chat format not recognized. Please check your export.")
+        st.code(text_data[:1000], language="text")
+        return None
     
     # Extract matches
-    matches = re.findall(pattern, text_data, re.DOTALL)
+    # matches = re.findall(pattern, text_data, re.DOTALL)
     
     # Convert to DataFrame
     df = pd.DataFrame(matches, columns=['timestamp', 'user', 'message'])
@@ -105,26 +139,69 @@ def process_dataframe(df):
     """Process the dataframe to extract useful features for analysis."""
     if df is None or len(df) == 0:
         return None
-    
+    df['timestamp'] = df['timestamp'].str.replace(r'[\[\]]', '', regex=True)
     # Try different timestamp formats
-    try:
-        df['datetime'] = pd.to_datetime(df['timestamp'], format='%d/%m/%Y, %H:%M')
-    except:
+    # Define all possible datetime formats
+    datetime_formats = [
+        # Day-first formats
+        '%d/%m/%y, %H:%M',        # 19/1/88, 21:59
+        '%d/%m/%y, %H:%M:%S',      # 19/1/88, 21:59:59
+        '%d/%m/%Y, %H:%M',         # 19/1/1988, 21:59
+        '%d-%m-%Y, %H:%M:%S',      # 19-01-1988, 21:59:59
+        '%d.%m.%Y, %I:%M %p',      # 19.01.1988, 09:59 PM
+        
+        # Month-first formats
+        '%m/%d/%y, %H:%M',         # 1/19/88, 21:59 (US)
+        '%m/%d/%Y, %I:%M %p',      # 1/19/1988, 09:59 AM
+        '%m-%d-%y, %H:%M:%S',      # 01-19-88, 21:59:59
+        '%m.%d.%Y, %I:%M %p',      # 1.19.1988, 09:59 PM
+        
+        # Special cases
+        '%d/%b/%y, %H:%M',         # Handles month abbreviations (19/Jan/88)
+        '%d-%m-%y, %I:%M %p',      # 19-01-88, 09:59 PM
+        '%d.%m.%y, %H:%M',         # 19.01.88, 21:59
+        '%m/%d/%y, %I:%M%p',       # 1/19/88, 9:59PM (no space)
+    ]
+
+    # Try parsing with multiple formats
+    for fmt in datetime_formats:
         try:
-            df['datetime'] = pd.to_datetime(df['timestamp'], format='%d/%m/%y, %H:%M')
-        except:
-            try:
-                df['datetime'] = pd.to_datetime(df['timestamp'], format='%m/%d/%Y, %I:%M %p')
-            except:
-                try:
-                    df['datetime'] = pd.to_datetime(df['timestamp'], format='%d/%m/%Y, %H:%M:%S')
-                except:
-                    try:
-                        df['datetime'] = pd.to_datetime(df['timestamp'], format='%m/%d/%y, %I:%M:%S %p')
-                    except:
-                        st.warning("Could not parse datetime format. Using a generic approach.")
-                        # Generic approach - this might not be accurate
-                        df['datetime'] = pd.to_datetime(df['timestamp'], errors='coerce')
+            df['datetime'] = pd.to_datetime(
+                df['timestamp'],
+                format=fmt,
+                errors='raise',
+                dayfirst=True
+            )
+            break
+        except (ValueError, pd.errors.OutOfBoundsDatetime):
+            continue
+            
+    # Final fallback with flexible parser
+    if 'datetime' not in df.columns:
+        df['datetime'] = pd.to_datetime(
+            df['timestamp'],
+            infer_datetime_format=True,
+            dayfirst=True,
+            errors='coerce'
+        )
+    # try:
+    #     df['datetime'] = pd.to_datetime(df['timestamp'], format='%d/%m/%Y, %H:%M')
+    # except:
+    #     try:
+    #         df['datetime'] = pd.to_datetime(df['timestamp'], format='%d/%m/%y, %H:%M')
+    #     except:
+    #         try:
+    #             df['datetime'] = pd.to_datetime(df['timestamp'], format='%m/%d/%Y, %I:%M %p')
+    #         except:
+    #             try:
+    #                 df['datetime'] = pd.to_datetime(df['timestamp'], format='%d/%m/%Y, %H:%M:%S')
+    #             except:
+    #                 try:
+    #                     df['datetime'] = pd.to_datetime(df['timestamp'], format='%m/%d/%y, %I:%M:%S %p')
+    #                 except:
+    #                     st.warning("Could not parse datetime format. Using a generic approach.")
+    #                     # Generic approach - this might not be accurate
+    #                     df['datetime'] = pd.to_datetime(df['timestamp'], errors='coerce')
     
     # Filter out rows with NaT datetime
     df = df.dropna(subset=['datetime'])
