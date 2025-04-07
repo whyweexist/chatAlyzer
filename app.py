@@ -81,13 +81,17 @@ def parse_chat(text_data):
         )
     )                               # End of timestamp
     \s*[-–—]\s*                     # Flexible separator (hyphen, en-dash, em-dash)
-    (.*?)                           # User
+    (                               # User (exclude system messages)
+        (?!.*?(?:created\sgroup|added\syou|changed\sthe\sgroup|pinned\sa\smessage|Messages\sand\scalls)) 
+        .*?                         # Actual user name
+    )
+    # (.*?)                           # User
     :\s                             # Message separator
     (.*?)                           # Message content
     (?=\n\s*\d|$)                   # Lookahead for next message
     '''
     
-    matches = re.findall(pattern, text_data, re.VERBOSE | re.DOTALL)
+    matches = re.findall(pattern, text_data, re.VERBOSE | re.DOTALL | re.IGNORECASE)
     if not matches:
         # Alternative pattern for bracketed timestamps [1/19/88, 21:59]
         alt_pattern = r'\[({0})\]'.format(
@@ -140,6 +144,14 @@ def process_dataframe(df):
     if df is None or len(df) == 0:
         return None
     df['timestamp'] = df['timestamp'].str.replace(r'[\[\]]', '', regex=True)
+    system_keywords = [
+        'created group', 'changed the group', 
+        'pinned a message', 'added you',
+        'changed this group\'s icon', 'Messages and calls'
+    ]
+    
+    # Use case-insensitive filtering
+    df = df[~df['message'].str.contains('|'.join(system_keywords), case=False)]
     # Try different timestamp formats
     # Define all possible datetime formats
     datetime_formats = [
